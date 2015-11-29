@@ -18,13 +18,13 @@ public Plugin:myinfo = {
 static String:ClassNames[TFClassType][] =  { "", "Scout", "Sniper", "Soldier", "Demoman", "Medic", "Heavy", "Pyro", "Spy", "Engineer" },
 	TFClassType:ClassTypes[] = {TFClass_Unknown, TFClass_Scout, TFClass_Sniper, TFClass_Soldier, TFClass_DemoMan, TFClass_Medic, TFClass_Heavy, TFClass_Pyro, TFClass_Spy, TFClass_Engineer}
 
-new Handle:g_AllowRedEngie,
+new Handle:g_DisableRedEngie,
 	TFClassType:g_BlueClass,
 	TFClassType:g_RedClass
 
 public OnPluginStart() {
 	CreateConVar("sm_classwarfare_version", PL_VERSION, "Class Warfare in TF2.", FCVAR_PLUGIN | FCVAR_SPONLY | FCVAR_REPLICATED | FCVAR_NOTIFY | FCVAR_DONTRECORD)
-	g_AllowRedEngie = CreateConVar("sm_classwarfare_disableredengie", "1", "Disable engineer to be picked on red")
+	g_DisableRedEngie = CreateConVar("sm_classwarfare_disableredengie", "1", "Disable engineer to be picked on red")
 
 	HookEvent("player_changeclass", Event_PlayerClass)
 	HookEvent("player_spawn", Event_PlayerSpawn)
@@ -112,7 +112,7 @@ AssignPlayerClasses() {
 
 ChooseClassRestrictions() {
 	g_BlueClass = ClassTypes[Math_GetRandomInt(1, 9)]
-	if (GetConVarBool(g_AllowRedEngie)) 
+	if (!GetConVarBool(g_DisableRedEngie)) 
 		g_RedClass = ClassTypes[Math_GetRandomInt(1, 9)]
 	else 
 		g_RedClass = ClassTypes[Math_GetRandomInt(1, 8)]
