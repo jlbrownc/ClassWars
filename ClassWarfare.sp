@@ -1,325 +1,228 @@
-#pragma semicolon 1
+//TODO Say how many more people are required to call a vote
+//TODO Admin command to force vote
+//TODO Admin command to force randomize
+//TODO show votes on screen
+//TODO remove vote and add command so it can be integraded with vote plugin?!!!!!!!!!!!!!!!!!!!!!!!
 
 #include <sourcemod>
 #include <tf2_stocks>
 
-#define PL_VERSION "0.2"
+#define PL_VERSION "0.3"
 
-#define TF_CLASS_DEMOMAN		4
-#define TF_CLASS_ENGINEER		9
-#define TF_CLASS_HEAVY			6
-#define TF_CLASS_MEDIC			5
-#define TF_CLASS_PYRO				7
-#define TF_CLASS_SCOUT			1
-#define TF_CLASS_SNIPER			2
-#define TF_CLASS_SOLDIER		3
-#define TF_CLASS_SPY				8
-#define TF_CLASS_UNKNOWN		0
-
-#define TF_TEAM_BLU					3
-#define TF_TEAM_RED					2
-
-#define SIZE_OF_INT		2147483647		// without 0
+#define SIZE_OF_INT		2147483647
 
 //This code is based on the Class Restrictions Mod from Tsunami: http://forums.alliedmods.net/showthread.php?t=73104
 
-public Plugin:myinfo = 
-{
+public Plugin:myinfo = {
 	name = "Class Warfare", 
-	author = "Tsunami,JonathanFlynn,Sound Fix by Phaiz", 
+	author = "Tsunami,JonathanFlynn,Sound Fix by Phaiz,Notso", 
 	description = "Class Vs Class", 
 	version = PL_VERSION, 
-	url = "https://github.com/JonathanFlynn/Class-Warfare"
+	url = "https://github.com/NotsoPenguin/ClassWars"
 }
 
-new g_iClass[MAXPLAYERS + 1];
-new Handle:g_hEnabled;
-new Handle:g_hFlags;
-new Handle:g_hImmunity;
-new Handle:g_hClassChangeInterval;
-new Handle:g_hAllowRedEngie;
-new Float:g_hLimits[4][10];
-new String:g_sSounds[10][24] =  { "", "vo/scout_no03.mp3", "vo/sniper_no04.mp3", "vo/soldier_no01.mp3", 
-	"vo/demoman_no03.mp3", "vo/medic_no03.mp3", "vo/heavy_no02.mp3", 
-	"vo/pyro_no01.mp3", "vo/spy_no02.mp3", "vo/engineer_no03.mp3" };
+static String:ClassNames[TFClassType][] =  { "", "Scout", "Sniper", "Soldier", "Demoman", "Medic", "Heavy", "Pyro", "Spy", "Engineer" },
+	TFClassType:ClassTypes[] = {TFClass_Unknown, TFClass_Scout, TFClass_Sniper, TFClass_Soldier, TFClass_DemoMan, TFClass_Medic, TFClass_Heavy, TFClass_Pyro, TFClass_Spy, TFClass_Engineer}
 
-static String:ClassNames[TFClassType][] =  { "", "Scout", "Sniper", "Soldier", "Demoman", "Medic", "Heavy", "Pyro", "Spy", "Engineer" };
+new Handle:g_AllowRedEngie,
+	Handle:g_StartVoteReq,
+	Handle:g_VotePassReq,
+	TFClassType:g_BlueClass,
+	TFClassType:g_RedClass,
+	bool:g_ClientVotes[30],
+	bool:g_ClientStartVote[30]
 
-new g_iBlueClass;
-new g_iRedClass;
-
-new RandomizedThisRound = 0;
-
-public OnPluginStart()
-{
-	CreateConVar("sm_classwarfare_version", PL_VERSION, "Class Warfare in TF2.", FCVAR_PLUGIN | FCVAR_SPONLY | FCVAR_REPLICATED | FCVAR_NOTIFY | FCVAR_DONTRECORD);
+public OnPluginStart() {
+	CreateConVar("sm_classwarfare_version", PL_VERSION, "Class Warfare in TF2.", FCVAR_PLUGIN | FCVAR_SPONLY | FCVAR_REPLICATED | FCVAR_NOTIFY | FCVAR_DONTRECORD)
+	g_AllowRedEngie = CreateConVar("sm_classwarfare_allowredengie", "1", "Allow engineer to be picked on red")
+	g_StartVoteReq = CreateConVar("sm_classwarfare_startvotereq", "0.15", "The percentage of votes required to initiate a vote", _, true, 0.01, true, 1.0)
+	g_VotePassReq = CreateConVar("sm_classwarfare_votepassreq", "0.75", "The percentage of votes required for a vote to pass", _, true, 0.01, true, 1.0)
 	
-	g_hEnabled = CreateConVar("sm_classwarfare_enabled", "1", "Enable/disable the Class Warfare mod in TF2.");
-	g_hFlags = CreateConVar("sm_classwarfare_flags", "", "Admin flags for restricted classes in TF2.");
-	g_hImmunity = CreateConVar("sm_classwarfare_immunity", "0", "Enable/disable admins being immune for restricted classes in TF2.");
-	g_hClassChangeInterval = CreateConVar("sm_classwarfare_change_interval", "0", "Shuffle the classes every x minutes, 0 for round only");
-	g_hAllowRedEngie = CreateConVar("sm_classwarfare_allow_red_engie", "1", "Allow engineer to be picked on red");
+	HookEvent("player_changeclass", Event_PlayerClass)
+	HookEvent("player_spawn", Event_PlayerSpawn)
+	HookEvent("player_team", Event_PlayerTeam)
+	HookEvent("teamplay_round_start", Event_RoundStart)
+	HookEvent("teamplay_setup_finished", Event_SetupFinished)
 	
-	HookEvent("player_changeclass", Event_PlayerClass);
-	HookEvent("player_spawn", Event_PlayerSpawn);
-	HookEvent("player_team", Event_PlayerTeam);
-	
-	HookEvent("teamplay_round_start", Event_RoundStart);
-	HookEvent("teamplay_setup_finished", Event_SetupFinished);
-	
-	HookEvent("teamplay_round_win", Event_RoundOver);
-	
-	new seeds[1];
-	seeds[0] = GetTime();
-	SetURandomSeed(seeds, 1);
-	
-	// for (new i = 0; i < 10; i++) {
-	// LogError("Random[%i] = %i", i, Math_GetRandomInt(TF_CLASS_SCOUT, TF_CLASS_ENGINEER));
-	// }  
-	
+	RegConsoleCmd("sm_randomize", sm_Randomize)
 }
+
+public Action sm_Randomize(int client, int args) {
+	if (!client)
+		return Plugin_Handled
+		
+	PrintToChatAll("\x03%N has voted to re choose the classes!", client)
+	g_ClientStartVote[client] = true
+	
+	new count = 0
+	for (new i = 1; i <= MaxClients; i++){
+		if (g_ClientStartVote[i])
+			count++
+	}
+	if ((count / GetClientCount(true)) >= GetConVarFloat(g_StartVoteReq)) {
+		PrintToChatAll("\x03A vote to randomize the classes has started!")
+		InitiateVote()
+	}
+	return Plugin_Handled
+}
+
+public MenuHandler1(Handle:menu, MenuAction:action, param1, param2) {
+	switch(action){
+		case (MenuAction_Select): {
+			PrintToServer("Item Selected!")
+			char info[5]
+			GetMenuItem(menu, param2, info, sizeof(info))
+			if (StrEqual(info, "yes")) {
+				PrintToServer("Selected %s", info)
+				g_ClientVotes[param1] = true	
+			}
+		}
+		case(MenuAction_Cancel): {
+			
+		}
+		case(MenuAction_End): {
+			PrintToServer("Menu Ended!")
+			new count = 0
+			for (new client = 1; client <= MaxClients; client++) {
+				if (g_ClientVotes[client]) {
+					count++
+				}
+			}
+			PrintToServer("Counts: %d Clients: %d Convar: %f ", count, GetClientCount(), GetConVarFloat(g_VotePassReq))
+			if ((count / GetClientCount())  >= GetConVarFloat(g_VotePassReq)) {
+				PrintToChatAll("\x03Vote Passed classes are being randomized!")				
+				ChooseClassRestrictions()
+				PrintStatus()
+				for (new client = 1; client <= MaxClients; client++) {
+					if (IsClientConnected(client)) {
+						TF2_RespawnPlayer(client)
+					}
+				}
+				for (new i = 1; i <= MaxClients; i++) {
+					g_ClientVotes[i] = false
+					g_ClientStartVote[i] = false					
+				}
+			}else {
+				PrintToChatAll("\0x3Vote has failed!")	
+			}
+		}
+	}
+}
+
+public InitiateVote() {
+	new Handle:menu = CreateMenu(MenuHandler1, MENU_ACTIONS_DEFAULT)
+	SetMenuTitle(menu, "Do you want to randomize the classes?")
+	AddMenuItem(menu, "yes", "Yes")
+	AddMenuItem(menu, "no", "No")
+	SetMenuExitButton(menu, false)
+	for (new client = 1; client <= MaxClients; client++) {
+		if (IsClientConnected(client)) {
+			DisplayMenu(menu, client, 15)
+		}
+	}
+}
+
+//Timer to reset votes
 
 public OnMapStart()
-{
-	SetupClassRestrictions();
+	ChooseClassRestrictions()
+
+public Event_PlayerClass(Handle:event, const String:name[], bool:dontBroadcast) {
+	new client = GetClientOfUserId(GetEventInt(event, "userid")), 
+	TFClassType:class = TFClassType:GetEventInt(event, "class")
 	
-	decl i, String:sSound[32];
-	for (i = 1; i < sizeof(g_sSounds); i++)
-	{
-		Format(sSound, sizeof(sSound), "sound/%s", g_sSounds[i]);
-		PrecacheSound(g_sSounds[i]);
-		AddFileToDownloadsTable(sSound);
+	if (!IsValidClass(client, class)) {
+		PrintCenterText(client, "%s%s%s%s%s", ClassNames[class], " Is Not An Option This Round! It's Red ", ClassNames[g_RedClass], " vs Blue ", ClassNames[g_BlueClass])
+		PrintToChat(client, "%s%s%s%s%s", ClassNames[class], " Is Not An Option This Round! It's Red ", ClassNames[g_RedClass], " vs Blue ", ClassNames[g_BlueClass])
+		AssignValidClass(client)
 	}
+	
 }
-
-public Event_RoundOver(Handle:event, const String:name[], bool:dontBroadcast) {
 	
-	//new WinnerTeam = GetEventInt(event, "team"); 
-	new FullRound = GetEventInt(event, "full_round");
-	//new WinReason = GetEventInt(event, "winreason"); 
-	//new FlagCapLimit = GetEventInt(event, "flagcaplimit"); 
-	
-	//PrintToChatAll("Full Round? %d | WinnerTeam: %d | WinReason: %d | FlagCapLimit: %d", FullRound, WinnerTeam, WinReason, FlagCapLimit); 
-	
-	//On Dustbowl, each stage is a mini-round.  If we switch up between minirounds,
-	//the teams may end up in a stalemate with lots of times on the clock... 
-	
-	if (FullRound == 1)
-	{
-		RandomizedThisRound = 0;
-	}
-}
-
-public OnClientPutInServer(client)
-{
-	g_iClass[client] = TF_CLASS_UNKNOWN;
-}
-
-public Event_PlayerClass(Handle:event, const String:name[], bool:dontBroadcast)
-{
-	if (!GetConVarBool(g_hEnabled))
-		return;
-	
-	new iClient = GetClientOfUserId(GetEventInt(event, "userid")), 
-	iClass = GetEventInt(event, "class");
-	
-	if (!IsValidClass(iClient, iClass))
-	{
-		//Don't need to show class selection again until we offer multiple classes
-		//new iTeam   = GetClientTeam(iClient);
-		//ShowVGUIPanel(iClient, iTeam == TF_TEAM_BLU ? "class_blue" : "class_red"); 
-		//EmitSoundToClient(iClient, g_sSounds[iClass]);
-		//TF2_SetPlayerClass(iClient, TFClassType:g_iClass[iClient]);
-		
-		PrintCenterText(iClient, "%s%s%s%s%s", ClassNames[iClass], " Is Not An Option This Round! It's Red ", ClassNames[g_iRedClass], " vs Blue ", ClassNames[g_iBlueClass]);
-		PrintToChat(iClient, "%s%s%s%s%s", ClassNames[iClass], " Is Not An Option This Round! It's Red ", ClassNames[g_iRedClass], " vs Blue ", ClassNames[g_iBlueClass]);
-		AssignValidClass(iClient);
-	}
-}
-
-
-public Action:Event_RoundStart(Handle:event, const String:name[], bool:dontBroadcast)
-{
-	RoundClassRestrictions();
-	PrintStatus();
-}
-
 public Action:Event_SetupFinished(Handle:event, const String:name[], bool:dontBroadcast)
-{
-	PrintStatus();
+	PrintStatus()
+
+public Action:Event_RoundStart(Handle:event, const String:name[], bool:dontBroadcast) {
+	ChooseClassRestrictions()
+	AssignPlayerClasses()
+	PrintStatus()
 }
 
-public Event_PlayerSpawn(Handle:event, const String:name[], bool:dontBroadcast)
-{
-	new iClient = GetClientOfUserId(GetEventInt(event, "userid"));
-	g_iClass[iClient] = _:TF2_GetPlayerClass(iClient);
+
+public Event_PlayerSpawn(Handle:event, const String:name[], bool:dontBroadcast) {
+	new client = GetClientOfUserId(GetEventInt(event, "userid")),
+	TFClassType:class = TFClassType:_:TF2_GetPlayerClass(client)
 	
-	if (!IsValidClass(iClient, g_iClass[iClient]))
-	{  //new iTeam   = GetClientTeam(iClient);       
-		//ShowVGUIPanel(iClient, iTeam == TF_TEAM_BLU ? "class_blue" : "class_red");
-		//EmitSoundToClient(iClient, g_sSounds[g_iClass[iClient]]);
-		
-		AssignValidClass(iClient);
+	if (!IsValidClass(client, class))	{
+		AssignValidClass(client)
+		TF2_RespawnPlayer(client)
 	}
 }
 
-public Event_PlayerTeam(Handle:event, const String:name[], bool:dontBroadcast)
-{
-	new iClient = GetClientOfUserId(GetEventInt(event, "userid"));
+public Event_PlayerTeam(Handle:event, const String:name[], bool:dontBroadcast) {
+	new client = GetClientOfUserId(GetEventInt(event, "userid")),
+	TFClassType:class = TFClassType:_:TF2_GetPlayerClass(client)
 	
-	if (!IsValidClass(iClient, g_iClass[iClient]))
-	{
-		//new iTeam   = GetClientTeam(iClient);
-		//ShowVGUIPanel(iClient, iTeam == TF_TEAM_BLU ? "class_blue" : "class_red");
-		//EmitSoundToClient(iClient, g_sSounds[g_iClass[iClient]]);
-		AssignValidClass(iClient);
+	if (!IsValidClass(client, class)) {
+		AssignValidClass(client)
+		TF2_RespawnPlayer(client)
 	}
 }
 
-bool:IsValidClass(iClient, iClass) {
+bool:IsValidClass(client, TFClassType:class) {
+	new TFTeam:team = TFTeam:TF2_GetClientTeam(client)
+	if (team == TFTeam_Red) {
+		if (class == g_RedClass) 
+			return true
+	} else if (class == g_BlueClass) 
+			return true	
 	
-	new iTeam = GetClientTeam(iClient);
-	
-	if (!(GetConVarBool(g_hImmunity) && IsImmune(iClient)) && IsFull(iTeam, iClass)) {
-		return false;
-	}
-	return true;
-}
-
-bool:IsFull(iTeam, iClass)
-{
-	// If plugin is disabled, or team or class is invalid, class is not full
-	if (!GetConVarBool(g_hEnabled) || iTeam < TF_TEAM_RED || iClass < TF_CLASS_SCOUT)
-		return false;
-	
-	// Get team's class limit
-	new iLimit, 
-	Float:flLimit = g_hLimits[iTeam][iClass];
-	
-	// If limit is a percentage, calculate real limit
-	if (flLimit > 0.0 && flLimit < 1.0)
-		iLimit = RoundToNearest(flLimit * GetTeamClientCount(iTeam));
-	else
-		iLimit = RoundToNearest(flLimit);
-	
-	// If limit is -1, class is not full
-	if (iLimit == -1)
-		return false;
-	// If limit is 0, class is full
-	else if (iLimit == 0)
-		return true;
-	
-	// Loop through all clients
-	for (new i = 1, iCount = 0; i <= MaxClients; i++)
-	{
-		// If client is in game, on this team, has this class and limit has been reached, class is full
-		if (IsClientInGame(i) && GetClientTeam(i) == iTeam && _:TF2_GetPlayerClass(i) == iClass && ++iCount > iLimit)
-			return true;
-	}
-	
-	return false;
+	return false
 }
 
 PrintStatus() {
-	if (!GetConVarBool(g_hEnabled))
-		return;
-	
-	PrintCenterTextAll("%s%s%s%s", "This is Class Warfare: Red ", ClassNames[g_iRedClass], " vs Blue ", ClassNames[g_iBlueClass]);
-	PrintToChatAll("%s%s%s%s", "This is Class Warfare: Red ", ClassNames[g_iRedClass], " vs Blue ", ClassNames[g_iBlueClass]);
-}
-bool:IsImmune(iClient)
-{
-	if (!iClient || !IsClientInGame(iClient))
-		return false;
-	
-	decl String:sFlags[32];
-	GetConVarString(g_hFlags, sFlags, sizeof(sFlags));
-	
-	// If flags are specified and client has generic or root flag, client is immune
-	return !StrEqual(sFlags, "") && GetUserFlagBits(iClient) & (ReadFlagString(sFlags) | ADMFLAG_ROOT);
+	PrintCenterTextAll("%s%s%s%s", "This is Class Warfare: Red ", ClassNames[g_RedClass], " vs Blue ", ClassNames[g_BlueClass])
+	PrintToChatAll("%s%s%s%s", "This is Class Warfare: Red ", ClassNames[g_RedClass], " vs Blue ", ClassNames[g_BlueClass])
 }
 
 AssignPlayerClasses() {
 	for (new i = 1; i <= MaxClients; ++i) {
-		if (IsClientConnected(i) && (!IsValidClass(i, g_iClass[i]))) {
-			AssignValidClass(i);
-		}
-	}
-}
-
-// Run once per real round (event fires multiple times)
-RoundClassRestrictions() {
-	if (RandomizedThisRound == 0) {
-		SetupClassRestrictions();
-	}
-	RandomizedThisRound = 1;
-	AssignPlayerClasses();
-}
-
-SetupClassRestrictions() {
-	
-	for (new i = TF_CLASS_SCOUT; i <= TF_CLASS_ENGINEER; i++)
-	{
-		g_hLimits[TF_TEAM_BLU][i] = 0.0;
-		g_hLimits[TF_TEAM_RED][i] = 0.0;
-	}
-	
-	g_iBlueClass = Math_GetRandomInt(TF_CLASS_SCOUT, TF_CLASS_ENGINEER);
-	if (GetConVarBool(g_hAllowRedEngie)) 
-		g_iRedClass = Math_GetRandomInt(TF_CLASS_SCOUT, TF_CLASS_ENGINEER);
-	else {
-		g_iRedClass = Math_GetRandomInt(TF_CLASS_SCOUT, TF_CLASS_SPY);
-	}
-	
-	
-	g_hLimits[TF_TEAM_BLU][g_iBlueClass] = -1.0;
-	g_hLimits[TF_TEAM_RED][g_iRedClass] = -1.0;
-	
-	new seconds = GetConVarInt(g_hClassChangeInterval) * 60;
-	if (seconds > 0) {
-		CreateTimer(float(seconds), TimerClassChange);
-	}
-	
-}
-
-public Action:TimerClassChange(Handle:timer, any:client)
-{
-	SetupClassRestrictions();
-	PrintToChatAll("%s%s%s%s", "Mid Round Class Change: Red ", ClassNames[g_iRedClass], " vs Blue ", ClassNames[g_iBlueClass]);
-}
-
-AssignValidClass(iClient)
-{
-	// Loop through all classes, starting at random class
-	for (new i = (TF_CLASS_SCOUT, TF_CLASS_ENGINEER), iClass = i, iTeam = GetClientTeam(iClient); ; )
-	{
-		// If team's class is not full, set client's class
-		if (!IsFull(iTeam, i))
-		{
-			TF2_SetPlayerClass(iClient, TFClassType:i);
-			TF2_RegeneratePlayer(iClient);
-			if (IsPlayerAlive(iClient)) {
-				TF2_RespawnPlayer(iClient);
+		if (IsClientConnected(i)) {
+			new TFClassType:class = TFClassType:_:TF2_GetPlayerClass(i)
+			if (IsClientConnected(i) && (!IsValidClass(i, class))) {
+				AssignValidClass(i)
+				TF2_RegeneratePlayer(i)
+				TF2_RespawnPlayer(i)
 			}
-			g_iClass[iClient] = i;
-			break;
 		}
-		// If next class index is invalid, start at first class
-		else if (++i > TF_CLASS_ENGINEER)
-			i = TF_CLASS_SCOUT;
-		// If loop has finished, stop searching
-		else if (i == iClass)
-			break;
 	}
 }
 
-stock Math_GetRandomInt(min, max)
-{
-	new random = GetURandomInt();
+ChooseClassRestrictions() {
+	g_BlueClass = ClassTypes[Math_GetRandomInt(1, 9)]
+	if (GetConVarBool(g_AllowRedEngie)) 
+		g_RedClass = ClassTypes[Math_GetRandomInt(1, 9)]
+	else 
+		g_RedClass = ClassTypes[Math_GetRandomInt(1, 8)]
+}
+
+
+AssignValidClass(client) {
+	new TFTeam:team = TFTeam:TF2_GetClientTeam(client)
+	if ((team == TFTeam:TFTeam_Unassigned) || (team == TFTeam:TFTeam_Spectator))
+		return
 	
-	if (random == 0) {
-		random++;
-	}
+	if (TF2_GetClientTeam(client) == TFTeam_Red) 
+		TF2_SetPlayerClass(client, g_RedClass)
+	else
+		TF2_SetPlayerClass(client, g_BlueClass)
+}
+
+stock Math_GetRandomInt(min, max) {
+	new random = GetURandomInt()
 	
-	return RoundToCeil(float(random) / (float(SIZE_OF_INT) / float(max - min + 1))) + min - 1;
+	if (random == 0)
+		random++
+	
+	return RoundToCeil(float(random) / (float(SIZE_OF_INT) / float(max - min + 1))) + min - 1
 } 
