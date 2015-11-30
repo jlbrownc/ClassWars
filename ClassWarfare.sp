@@ -19,12 +19,14 @@ static String:ClassNames[TFClassType][] =  { "", "Scout", "Sniper", "Soldier", "
 	TFClassType:ClassTypes[] = {TFClass_Unknown, TFClass_Scout, TFClass_Sniper, TFClass_Soldier, TFClass_DemoMan, TFClass_Medic, TFClass_Heavy, TFClass_Pyro, TFClass_Spy, TFClass_Engineer}
 
 new Handle:g_DisableRedEngie,
+	Handle:g_DisableRandomize,
 	TFClassType:g_BlueClass,
 	TFClassType:g_RedClass
 
 public OnPluginStart() {
 	CreateConVar("sm_classwarfare_version", PL_VERSION, "Class Warfare in TF2.", FCVAR_PLUGIN | FCVAR_SPONLY | FCVAR_REPLICATED | FCVAR_NOTIFY | FCVAR_DONTRECORD)
 	g_DisableRedEngie = CreateConVar("sm_classwarfare_disableredengie", "0", "Disable engineer to be picked on red")
+	g_DisableRandomize = CreateConVar("sm_classwarfare_disablerandomize", "0", "Disable sm_randomize")
 
 	HookEvent("player_changeclass", Event_PlayerClass)
 	HookEvent("player_spawn", Event_PlayerSpawn)
@@ -39,10 +41,12 @@ public OnMapStart() {
 }
 
 public Action sm_Randomize(int client, int args) {
-	PrintToChatAll("\x03The classes have been randomized by an admin!")
-	PrintCenterTextAll("%s%s%s%s", "Classes have been randomized! Red ", ClassNames[g_RedClass], " vs Blue ", ClassNames[g_BlueClass])
-	ChooseClassRestrictions()
-	AssignPlayerClasses()
+	if (!GetConVarBool(g_DisableRandomize)) {
+		PrintToChatAll("\x03The classes have been randomized by an admin!")
+		PrintCenterTextAll("%s%s%s%s", "Classes have been randomized! Red ", ClassNames[g_RedClass], " vs Blue ", ClassNames[g_BlueClass])
+		ChooseClassRestrictions()
+		AssignPlayerClasses()
+	}
 }
 
 public Event_PlayerClass(Handle:event, const String:name[], bool:dontBroadcast) {
