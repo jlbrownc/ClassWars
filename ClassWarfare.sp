@@ -24,7 +24,7 @@ new Handle:g_DisableRedEngie,
 
 public OnPluginStart() {
 	CreateConVar("sm_classwarfare_version", PL_VERSION, "Class Warfare in TF2.", FCVAR_PLUGIN | FCVAR_SPONLY | FCVAR_REPLICATED | FCVAR_NOTIFY | FCVAR_DONTRECORD)
-	g_DisableRedEngie = CreateConVar("sm_classwarfare_disableredengie", "1", "Disable engineer to be picked on red")
+	g_DisableRedEngie = CreateConVar("sm_classwarfare_disableredengie", "0", "Disable engineer to be picked on red")
 
 	HookEvent("player_changeclass", Event_PlayerClass)
 	HookEvent("player_spawn", Event_PlayerSpawn)
