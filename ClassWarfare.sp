@@ -50,7 +50,7 @@ public Event_PlayerClass(Handle:event, const String:name[], bool:dontBroadcast) 
 	TFClassType:class = TFClassType:GetEventInt(event, "class")
 	
 	if (!IsValidClass(client, class)) {
-		PrintCenterText(client, "\x03%s%s%s%s%s", ClassNames[class], " Is Not An Option This Round! It's Red ", ClassNames[g_RedClass], " vs Blue ", ClassNames[g_BlueClass])
+		PrintCenterText(client, "%s%s%s%s%s", ClassNames[class], " Is Not An Option This Round! It's Red ", ClassNames[g_RedClass], " vs Blue ", ClassNames[g_BlueClass])
 		AssignValidClass(client)
 	}
 	
