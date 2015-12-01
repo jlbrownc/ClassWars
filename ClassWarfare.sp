@@ -1,7 +1,7 @@
 #include <sourcemod>
 #include <tf2_stocks>
 
-#define PL_VERSION "0.3"
+#define PL_VERSION "0.31"
 
 #define SIZE_OF_INT	2147483647
 
