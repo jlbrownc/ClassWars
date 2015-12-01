@@ -31,18 +31,18 @@ public OnPluginStart() {
 	HookEvent("teamplay_round_start", Event_RoundStart)
 	HookEvent("teamplay_setup_finished", Event_SetupFinished)
 	
-	RegAdminCmd("sm_randomize", sm_Randomize, ADMFLAG_KICK, "Randomizes the classes!")
+	RegServerCmd("sm_randomize", sm_Randomize, "Randomizes the classes!")
 }
 
 public OnMapStart() {
 	ChooseClassRestrictions()
 }
 
-public Action sm_Randomize(int client, int args) {
-	PrintToChatAll("\x03The classes have been randomized by an admin!")
-	PrintCenterTextAll("%s%s%s%s", "Classes have been randomized! Red ", ClassNames[g_RedClass], " vs Blue ", ClassNames[g_BlueClass])
+public Action sm_Randomize(int args) {
+	PrintStatus()
 	ChooseClassRestrictions()
 	AssignPlayerClasses()
+	return Plugin_Handled
 }
 
 public Event_PlayerClass(Handle:event, const String:name[], bool:dontBroadcast) {
