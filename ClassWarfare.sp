@@ -3,8 +3,6 @@
 
 #define PL_VERSION "0.4"
 
-#define SIZE_OF_INT	2147483647
-
 //This code is based on the Class Restrictions Mod from Tsunami: http://forums.alliedmods.net/showthread.php?t=73104
 
 public Plugin:myinfo = {
