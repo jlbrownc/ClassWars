@@ -1,7 +1,7 @@
 #include <sourcemod>
 #include <tf2_stocks>
 
-#define PL_VERSION "0.31"
+#define PL_VERSION "0.4"
 
 #define SIZE_OF_INT	2147483647
 
@@ -9,18 +9,19 @@
 
 public Plugin:myinfo = {
 	name = "Class Warfare", 
-	author = "Tsunami,JonathanFlynn,Sound Fix by Phaiz,Notso", 
+	author = "Tsunami,JonathanFlynn,Phaiz,Notso", 
 	description = "Class Vs Class", 
 	version = PL_VERSION, 
 	url = "https://github.com/NotsoPenguin/ClassWars"
 }
 
-static String:ClassNames[TFClassType][] =  { "", "Scout", "Sniper", "Soldier", "Demoman", "Medic", "Heavy", "Pyro", "Spy", "Engineer" },
-	TFClassType:ClassTypes[] = {TFClass_Unknown, TFClass_Scout, TFClass_Sniper, TFClass_Soldier, TFClass_DemoMan, TFClass_Medic, TFClass_Heavy, TFClass_Pyro, TFClass_Spy, TFClass_Engineer}
+static String:ClassNames[TFClassType][] =  { "", "Scout", "Sniper", "Soldier", "Demoman", "Medic", "Heavy", "Pyro", "Spy", "Engineer" }
 
 new Handle:g_DisableRedEngie,
 	TFClassType:g_BlueClass,
 	TFClassType:g_RedClass
+	
+new g_FirstRound = true
 
 public OnPluginStart() {
 	CreateConVar("sm_classwarfare_version", PL_VERSION, "Class Warfare in TF2.", FCVAR_PLUGIN | FCVAR_SPONLY | FCVAR_REPLICATED | FCVAR_NOTIFY | FCVAR_DONTRECORD)
@@ -36,12 +37,14 @@ public OnPluginStart() {
 
 public OnMapStart() {
 	ChooseClassRestrictions()
+	AssignPlayerClasses()
+	PrintStatus()
 }
 
 public Action sm_Randomize(int args) {
-	PrintStatus()
 	ChooseClassRestrictions()
 	AssignPlayerClasses()
+	PrintStatus()
 	return Plugin_Handled
 }
 
@@ -111,11 +114,37 @@ AssignPlayerClasses() {
 }
 
 ChooseClassRestrictions() {
-	g_BlueClass = ClassTypes[Math_GetRandomInt(1, 9)]
-	if (!GetConVarBool(g_DisableRedEngie)) 
-		g_RedClass = ClassTypes[Math_GetRandomInt(1, 9)]
-	else 
-		g_RedClass = ClassTypes[Math_GetRandomInt(1, 8)]
+	if (!g_FirstRound) {
+		new numRedClasses = GetConVarBool(g_DisableRedEngie) ? 8 : 9
+		
+		new TFClassType:blueClasses[9],
+			TFClassType:redClasses[numRedClasses]
+		
+		new blueCount = 1
+		for (new i = 1; i <= 9; i++) {
+			if (TFClassType:i != g_BlueClass) {
+				blueClasses[blueCount] = TFClassType:i	
+				blueCount++				
+			}
+		}
+		
+		new redCount = 1
+		for (new i = 1; i <= numRedClasses; i++) {
+			if (TFClassType:i != g_RedClass) {
+				if (!(GetConVarBool(g_DisableRedEngie) && (TFClassType:i == TFClassType:TFClass_Engineer))) {	
+					redClasses[redCount] = TFClassType:i
+					redCount++				
+				}
+			}
+		}
+	
+		g_BlueClass = blueClasses[GetRandomInt(1, 8)]
+		g_RedClass = redClasses[GetRandomInt(1, numRedClasses-1)]
+	} else {
+		g_BlueClass = TFClassType:GetRandomInt(1, 8)
+		g_RedClass = TFClassType:GetRandomInt(1, GetConVarBool(g_DisableRedEngie) ? 8 : 9)
+		g_FirstRound = false
+	}
 }
 
 AssignValidClass(client) {
@@ -133,12 +162,3 @@ PrintStatus() {
 	PrintCenterTextAll("%s%s%s%s", "This is Class Warfare: Red ", ClassNames[g_RedClass], " vs Blue ", ClassNames[g_BlueClass])
 	PrintToChatAll("\x03%s%s%s%s", "This is Class Warfare: Red ", ClassNames[g_RedClass], " vs Blue ", ClassNames[g_BlueClass])
 }
-
-stock Math_GetRandomInt(min, max) {
-	new random = GetURandomInt()
-	
-	if (random == 0)
-		random++
-	
-	return RoundToCeil(float(random) / (float(SIZE_OF_INT) / float(max - min + 1))) + min - 1
-} 
