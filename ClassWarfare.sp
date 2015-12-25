@@ -2,7 +2,7 @@
 #include <tf2_stocks>
 #include <sdktools>
 
-#define PL_VERSION "0.5"
+#define PL_VERSION "0.5.1"
 
 //This code is based on the Class Restrictions Mod from Tsunami: http://forums.alliedmods.net/showthread.php?t=73104
 
@@ -43,27 +43,29 @@ String:WeaponClasses[][64] =  {
 new Handle:g_DisableRedEngie, 
 Handle:g_MeleeRoundChance, 
 TFClassType:g_BlueClass, 
-TFClassType:g_RedClass
-
-new g_FirstRound = true, 
+TFClassType:g_RedClass, 
 g_MeleeRound = false, 
-ArrayList:g_Timers
+g_LastRoundFull
 
 
 public OnPluginStart() {
 	CreateConVar("sm_classwarfare_version", PL_VERSION, "Class Warfare in TF2.", FCVAR_PLUGIN | FCVAR_SPONLY | FCVAR_REPLICATED | FCVAR_NOTIFY | FCVAR_DONTRECORD)
 	g_DisableRedEngie = CreateConVar("sm_classwarfare_disableredengie", "0", "Disable engineer to be picked on red")
-	g_MeleeRoundChance = CreateConVar("sm_classwarfare_melee_chance", "0.05", "Percent Chance for a round to be melee only", _, true, 0.00, true, 1.00)
+	g_MeleeRoundChance = CreateConVar("sm_classwarfare_medieval_chance", "0.05", "Percent Chance for a round to be melee only", _, true, 0.00, true, 1.00)
 	HookEvent("player_changeclass", Event_PlayerClass)
 	HookEvent("player_spawn", Event_PlayerSpawn)
 	HookEvent("teamplay_round_start", Event_RoundStart)
 	HookEvent("teamplay_setup_finished", Event_SetupFinished)
 	HookEvent("post_inventory_application", Event_Resupply)
+	HookEvent("teamplay_round_win", Event_RoundOver)
 	RegServerCmd("sm_randomize", sm_Randomize, "Randomizes the classes!")
 	
 	AutoExecConfig(true, "classwarfare");
-	g_Timers = new ArrayList()
 }
+
+//////////////////////////
+//////////Events//////////
+//////////////////////////
 
 public OnMapStart() {
 	SetupMeleeRound()
@@ -116,9 +118,20 @@ public Event_Resupply(Handle:event, const String:name[], bool:dontBroadcast) {
 		new client = GetClientOfUserId(GetEventInt(event, "userid")), 
 		weapon = GetPlayerWeaponSlot(client, 2)
 		SetEntPropEnt(client, Prop_Send, "m_hActiveWeapon", weapon)
+		StripWeapons(client)		
 	}
 }
 
+public Event_RoundOver(Handle:event, const String:name[], bool:dontBroadcast) {
+	if (GetEventInt(event, "full_round") == 1) {
+		g_LastRoundFull = true
+	}
+}
+
+
+//////////////////////////////////
+//////////Class Choosing//////////
+/////////////////////////////////
 bool:IsValidClass(client, TFClassType:class) {
 	new TFTeam:team = TFTeam:TF2_GetClientTeam(client)
 	if (team == TFTeam_Red) {
@@ -143,57 +156,22 @@ AssignPlayerClasses() {
 	}
 }
 
-ChooseClassRestrictions() {
-	if (!g_FirstRound) {
-		new numRedClasses = GetConVarBool(g_DisableRedEngie) ? 8 : 9
-		
-		new TFClassType:blueClasses[9], 
-		TFClassType:redClasses[numRedClasses]
-		
-		new blueCount = 1
-		for (new i = 1; i <= 9; i++) {
-			if (TFClassType:i != g_BlueClass) {
-				blueClasses[blueCount] = TFClassType:i
-				blueCount++
+TFClassType:ChooseClass(ArrayList:blockedClasses) {
+	new ArrayList:allowedClasses = new ArrayList()
+	for (new class = 1; class <= 9; class++) {
+		new isAllowed = true
+		for (new blocked = 0; blocked < blockedClasses.Length; blocked++) {
+			if (class == blockedClasses.Get(blocked)) {
+				isAllowed = false
 			}
 		}
-		
-		new redCount = 1
-		for (new i = 1; i <= numRedClasses; i++) {
-			if (TFClassType:i != g_RedClass) {
-				if (!(GetConVarBool(g_DisableRedEngie) && (TFClassType:i == TFClassType:TFClass_Engineer))) {
-					redClasses[redCount] = TFClassType:i
-					redCount++
-				}
-			}
+		if (isAllowed) {
+			allowedClasses.Push(class)
 		}
-		
-		g_BlueClass = blueClasses[GetRandomInt(1, 8)]
-		g_RedClass = redClasses[GetRandomInt(1, numRedClasses - 1)]
-	} else {
-		g_BlueClass = TFClassType:GetRandomInt(1, 8)
-		g_RedClass = TFClassType:GetRandomInt(1, GetConVarBool(g_DisableRedEngie) ? 8 : 9)
-		g_FirstRound = false
 	}
+	return allowedClasses.Get(GetRandomInt(0, allowedClasses.Length - 1))
 }
 
-SetupMeleeRound() {
-	for (new i = 0; i < g_Timers.Length; i++) {
-		KillTimer(g_Timers.Get(i))
-	}
-	g_Timers.Clear()
-	float random = GetRandomFloat(0.00, 1.00)
-	if (random <= GetConVarFloat(g_MeleeRoundChance)) {
-		g_MeleeRound = true
-		for (new client = 1; client <= MaxClients; client++) {
-			if (IsClientConnected(client)) {
-				g_Timers.Push(CreateTimer(0.2, Timer_MeleeOnly, client, TIMER_REPEAT))
-			}
-		}
-	} else {
-		g_MeleeRound = false
-	}
-}
 
 AssignValidClass(client) {
 	new TFTeam:team = TFTeam:TF2_GetClientTeam(client)
@@ -206,7 +184,41 @@ AssignValidClass(client) {
 		TF2_SetPlayerClass(client, g_BlueClass)
 }
 
-public Action Timer_MeleeOnly(Handle:timer, int client) {
+ChooseClassRestrictions() {
+	new ArrayList:blockedRedClasses = new ArrayList()
+	new ArrayList:blockedBlueClasses = new ArrayList()
+	
+	//Players don't play the same classes again
+	//Even after team switch
+	if (!g_LastRoundFull) {
+		blockedRedClasses.Push(g_RedClass)
+		blockedBlueClasses.Push(g_BlueClass)
+	} else {
+		blockedRedClasses.Push(g_BlueClass)
+		blockedBlueClasses.Push(g_RedClass)
+	}
+	g_LastRoundFull = false
+	
+	//Disable red engineer.
+	if (GetConVarBool(g_DisableRedEngie)) {
+		blockedRedClasses.Push(TFClass_Engineer)
+	}
+	
+	new TFClassType:g_NewRedClass = ChooseClass(blockedRedClasses)
+	
+	//Prevent the same matchup as last time.
+	if (g_NewRedClass == g_BlueClass) {
+		blockedBlueClasses.Push(g_RedClass)
+	}
+	
+	g_RedClass = g_NewRedClass
+	g_BlueClass = ChooseClass(blockedBlueClasses)
+}
+
+////////////////////////////////
+//////////Melee Rounds//////////
+///////////////////////////////
+StripWeapons(client) {
 	if (IsClientConnected(client) && IsClientInGame(client) && !IsFakeClient(client) && IsPlayerAlive(client)) {
 		new isAllowed = false
 		decl String:class[64]
@@ -228,6 +240,17 @@ public Action Timer_MeleeOnly(Handle:timer, int client) {
 	}
 }
 
+SetupMeleeRound() {
+	if (GetRandomFloat(0.00, 1.00) <= GetConVarFloat(g_MeleeRoundChance)) {
+		g_MeleeRound = true
+		for (new client = 1; client <= MaxClients; client++) {
+			StripWeapons(client)
+		}
+	} else {
+		g_MeleeRound = false
+	}
+}
+
 PrintStatus() {
 	if (g_MeleeRound) {
 		PrintCenterTextAll("%s%s%s%s", "This is Medieval Mode Class Warfare: Red ", ClassNames[g_RedClass], " vs Blue ", ClassNames[g_BlueClass])
@@ -237,4 +260,3 @@ PrintStatus() {
 		PrintToChatAll("\x04%s%s%s%s", "This is Class Warfare: Red ", ClassNames[g_RedClass], " vs Blue ", ClassNames[g_BlueClass])
 	}
 }
-
